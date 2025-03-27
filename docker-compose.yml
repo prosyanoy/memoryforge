@@ -1,0 +1,41 @@
+# Optional infrastructure. MemoryForge runs without any of this (in-process queue + SQLite).
+#   docker compose up -d redpanda            # Kafka-compatible broker on localhost:19092
+#   docker compose --profile llm up -d ollama # optional local LLM on localhost:11434
+services:
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.7
+    command:
+      - redpanda
+      - start
+      - --mode=dev-container
+      - --smp=1
+      - --memory=512M
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
+    ports:
+      - "19092:19092"
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "health", "--exit-when-healthy"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+
+  redpanda-init:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.7
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    # one partition keeps per-topic ordering simple for the MVP
+    entrypoint: ["rpk", "topic", "create", "conversation.events", "--partitions", "1", "--brokers", "redpanda:9092"]
+    restart: "no"
+
+  ollama:
+    profiles: ["llm"]
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+
+volumes:
+  ollama:
